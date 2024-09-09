@@ -6,11 +6,11 @@ public class Message {
     private String content;
     private int receiverId;
     private int senderId;
+    private LocalDateTime timestamp;
 
-    public Message(int senderId, MessageType type, String content, int receiverId) {
+    public Message(int senderId, MessageType type, int receiverId) {
         this.senderId = senderId;
         this.type = type;
-        this.content = content;
         this.receiverId = receiverId;
     }
 
@@ -32,14 +32,18 @@ public class Message {
 
     public String toString() {
         return LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-                + " | From: " + senderId + " | " + type + " | " + content;
+                + " | From: " + senderId + " | " + type ;
     }
 
     public static Message fromString(String message) {
         String[] parts = message.split(" \\| ");
-        int senderId = Integer.parseInt(parts[1].split(": ")[1]);
-        MessageType type = MessageType.valueOf(parts[2]);
-        String content = parts[3];
-        return new Message(senderId, type, content, -1);
+        if (parts.length != 3) {
+            System.err.println("Invalid message format: " + message);
+            return null;
+        }
+        LocalDateTime timestamp = LocalDateTime.parse(parts[0].trim(), DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        int senderId = Integer.parseInt(parts[1].split(": ")[1].trim());
+        MessageType type = MessageType.valueOf(parts[2].trim());
+        return new Message(senderId, type, -1);
     }
 }
