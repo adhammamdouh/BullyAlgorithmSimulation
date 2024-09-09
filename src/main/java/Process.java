@@ -11,9 +11,10 @@ public class Process implements Runnable {
 
     private int id;
     private int port;
-    private boolean isCoordinator;
-    private int coordinatorId;
     private ServerSocket serverSocket; // Server socket to listen for incoming messages
+
+    protected boolean isCoordinator;
+    protected int coordinatorId;
 
     public Process(int id) {
         this.id = id;
