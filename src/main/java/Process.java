@@ -24,10 +24,12 @@ public class Process {
     protected AtomicBoolean isElectionInProgress;
     protected long electionStartTime;
     protected long lastAliveMessageTime;
+    protected long lastOkMessageTime;
 
     protected List<ProcessInfo> otherProcesses;
     protected ServerSocket serverSocket;
     protected AtomicBoolean isRunning; // To control the process loop
+    protected AtomicBoolean foundEligibleProcess;
 
     private static final Logger LOGGER = Logger.getLogger(java.lang.Process.class.getName());
 
@@ -41,6 +43,7 @@ public class Process {
         this.lastAliveMessageTime = System.currentTimeMillis();
         this.isElectionInProgress = new AtomicBoolean(false);
         this.isRunning = new AtomicBoolean(true);
+        this.foundEligibleProcess = new AtomicBoolean(false);
 
     }
 
@@ -52,43 +55,61 @@ public class Process {
                 findCoordinator();
             }
 
-            Socket clientSocket = null;
             while (isRunning.get()) {
-                try {
-                    if (isCoordinator) {
-                        serverSocket.setSoTimeout(COORDINATOR_TIMEOUT_IN_MS / 2);
-                    } else {
-                        serverSocket.setSoTimeout(COORDINATOR_TIMEOUT_IN_MS * 2);
-                    }
-
-                    clientSocket = serverSocket.accept();
-                    BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-
-                    String message = in.readLine();
-
-                    handleMessage(message);
-                } catch (Exception e) {
-                    LOGGER.log(Level.INFO, "Process " + id + " timed out." + " " + !isCoordinator + " " + checkLastAliveMessageTime());
-                    if (!isCoordinator && checkLastAliveMessageTime()) {
-                        findCoordinator();
-                    }
-
-                    if (isCoordinator && isRunning.get()) {
-                        long currentTime = System.currentTimeMillis();
-                        if (currentTime - lastAliveMessageTime >= COORDINATOR_TIMEOUT_IN_MS / 2) {
-                            sendCoordinatorAliveMessage();
-                            lastAliveMessageTime = currentTime;
-                        }
-                    }
-                }
+                handleIncomingMessages();
             }
-            clientSocket.close();
+        } catch (Exception e) {
+            LOGGER.log(Level.SEVERE, "Error in process " + id + ": " + e.getMessage(), e);
+        }
+    }
+
+    private void handleIncomingMessages() {
+        try {
+            configureServerSocketTimeout();
+
+            Socket clientSocket = serverSocket.accept(); //Handle closed Exception
+            try (BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()))) {
+                String message = in.readLine();
+
+                handleMessage(message);
+                clientSocket.close();
+            }
         } catch (SocketTimeoutException e) {
-            LOGGER.log(Level.INFO, "Process " + id + " timed out.");
-        } catch (SocketException e) {
-            LOGGER.log(Level.SEVERE, "Error in process " + id + ": " + e.getMessage(), e);
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error in process " + id + ": " + e.getMessage(), e);
+            performPeriodicTasks();
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "Error handling incoming message in process " + id + ": " + e.getMessage(), e);
+        }
+    }
+
+    // Perform periodic tasks like coordinator heartbeats and election timeouts
+    private void performPeriodicTasks() {
+        if (!isCoordinator && checkLastAliveMessageTime()) {
+            findCoordinator();
+        }
+
+        if (isCoordinator) {
+            sendCoordinatorHeartbeatIfNeeded();
+        }
+
+        if (checkElectionTimeout()) {
+            declareCoordinator();
+        }
+    }
+
+    private void sendCoordinatorHeartbeatIfNeeded() {
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastAliveMessageTime >= COORDINATOR_TIMEOUT_IN_MS / 2) {
+            sendCoordinatorAliveMessage();
+            lastAliveMessageTime = currentTime;
+        }
+    }
+
+    // Helper to set server socket timeout based on process role
+    private void configureServerSocketTimeout() throws SocketException {
+        if (isCoordinator) {
+            serverSocket.setSoTimeout(COORDINATOR_TIMEOUT_IN_MS / 2);
+        } else {
+            serverSocket.setSoTimeout(COORDINATOR_TIMEOUT_IN_MS * 2);
         }
     }
 
@@ -111,51 +132,86 @@ public class Process {
                 handleElectionMessage(receivedMessage.getSenderId());
                 break;
             case OK:
-                if (receivedMessage.getSenderId() > id) {
-                    isElectionInProgress.set(false);
-                }
-                LOGGER.log(Level.INFO, "Process " + id + " received OK message from process " + receivedMessage.getSenderId());
+                handleOkMessage(receivedMessage.getSenderId());
                 break;
             case COORDINATOR:
-                coordinatorId = receivedMessage.getSenderId();
-                isElectionInProgress.set(false);
-                isCoordinator = (id == coordinatorId);
-                LOGGER.log(Level.INFO, "Process " + id + " acknowledges new coordinator: " + coordinatorId);
+                handleCoordinatorMessage(receivedMessage.getSenderId());
                 break;
             case COORDINATOR_ALIVE:
-                coordinatorId = receivedMessage.getSenderId();
-                LOGGER.log(Level.INFO, "Process " + id + " received COORDINATOR_ALIVE from coordinator " + coordinatorId);
+                handleCoordinatorAliveMessage(receivedMessage.getSenderId());
                 break;
             case STOP:
                 removeProcess(receivedMessage.getSenderId());
                 break;
-
         }
     }
 
+    private void handleOkMessage(int senderId) {
+        if (senderId > id) {
+            isElectionInProgress.set(false);
+            foundEligibleProcess.set(true);
+            LOGGER.log(Level.INFO, "Process " + id + " received OK from a higher ID. Stopping message sending.");
+        }
+    }
+
+    private void handleCoordinatorMessage(int senderId) {
+        if (senderId < id) {
+            return; // Ignore COORDINATOR messages from lower IDs during an election
+        }
+        coordinatorId = senderId;
+        isElectionInProgress.set(false);
+        isCoordinator = (id == coordinatorId);
+        foundEligibleProcess.set(false); // Reset if a new coordinator is elected
+        LOGGER.log(Level.INFO, "Process " + id + " acknowledges new coordinator: " + coordinatorId);
+    }
+
+    private void handleCoordinatorAliveMessage(int senderId) {
+        if (senderId < id) {
+            return; // Ignore COORDINATOR_ALIVE messages from lower IDs during an election
+        }
+        coordinatorId = senderId;
+        isElectionInProgress.set(false);
+        isCoordinator = (id == coordinatorId);
+        foundEligibleProcess.set(false); // Reset if coordinator is alive
+        LOGGER.log(Level.INFO, "Process " + id + " received COORDINATOR_ALIVE from coordinator " + coordinatorId);
+    }
+
+    private void removeProcess(int processId) {
+        otherProcesses.removeIf(process -> process.getId() == processId);
+        if (coordinatorId == processId) {
+            coordinatorId = -1;
+            isCoordinator = false;
+            foundEligibleProcess.set(false);
+            LOGGER.log(Level.INFO, "Coordinator died. Resuming message sending.");
+        }
+        LOGGER.log(Level.INFO, "Process " + id + " removed process " + processId + " from the list of processes.");
+    }
+
     public void sendMessage(ProcessInfo receiver, Message message) {
-        try {
-            Socket socket = new Socket("localhost", receiver.getPort());
-            PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+        if (foundEligibleProcess.get()) {
+            LOGGER.log(Level.INFO, "Process " + id + " is in an election. Cannot send message to process " + receiver.getId());
+            return;
+        }
+        try (Socket socket = new Socket("localhost", receiver.getPort());
+             PrintWriter out = new PrintWriter(socket.getOutputStream(), true)) {
             out.println(message.toString());
-            socket.close();
             LOGGER.log(Level.INFO, "Process " + id + " sent message to process " + receiver.getId() + ": " + message.getType());
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, "Error sending message to process " + receiver.getId() + ": " + e.getMessage(), e);
         }
     }
 
+
     public void stop() {
         try {
+            isRunning.set(false);
+
+            for (ProcessInfo otherProcess : otherProcesses) {
+                sendMessage(otherProcess, new Message(id, MessageType.STOP, otherProcess.getId()));
+            }
+
             if (serverSocket != null && !serverSocket.isClosed()) {
-
-                for (ProcessInfo otherProcess : otherProcesses) {
-                    Message message = new Message(id, MessageType.STOP, otherProcess.getId());
-                    sendMessage(otherProcess, message);
-                }
-
                 serverSocket.close();
-                isRunning.set(false);
                 LOGGER.log(Level.INFO, "Process " + id + " stopped.");
             }
         } catch (IOException e) {
@@ -164,15 +220,14 @@ public class Process {
     }
 
     private void initiateElection() {
-        if (!isElectionInProgress.get()) { // Start election only if not already in one
+        if (!isElectionInProgress.get()) {
             isElectionInProgress.set(true);
             electionStartTime = System.currentTimeMillis();
             LOGGER.log(Level.INFO, "Process " + id + " initiated an election.");
 
             for (ProcessInfo otherProcess : otherProcesses) {
                 if (otherProcess.getId() > id) {
-                    Message electionMessage = new Message(id, MessageType.ELECTION, otherProcess.getId());
-                    sendMessage(otherProcess, electionMessage);
+                    sendMessage(otherProcess, new Message(id, MessageType.ELECTION, otherProcess.getId()));
                 }
             }
         }
@@ -180,55 +235,40 @@ public class Process {
 
     private void findCoordinator() {
         LOGGER.log(Level.INFO, "Process " + id + " is looking for the coordinator.");
+
         for (ProcessInfo otherProcess : otherProcesses) {
-            try {
-                Socket socket = new Socket("localhost", otherProcess.getPort());
-                Message message = new Message(id, MessageType.ELECTION, otherProcess.getId());
-                sendMessage(otherProcess, message);
-                socket.close();
+            try (Socket socket = new Socket("localhost", otherProcess.getPort())) {
+                sendMessage(otherProcess, new Message(id, MessageType.ELECTION, otherProcess.getId()));
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, "Process " + id + " failed to connect to process " + otherProcess.getId(), e);
             }
         }
 
-        if (otherProcesses == null || otherProcesses.isEmpty()) {
-            LOGGER.log(Level.INFO, "Process " + id + " is the new coordinator.");
-            isCoordinator = true;
-            coordinatorId = id;
-        }
-
         if (coordinatorId == -1) {
-            declareCoordinator();
+            initiateElection();
         }
     }
 
     private void declareCoordinator() {
-        // Only declare yourself the coordinator if an election is in progress and you haven't received any OK
-        if (isElectionInProgress.get()) {
+        if (isElectionInProgress.get() && !foundEligibleProcess.get()) {
             LOGGER.log(Level.INFO, "Process " + id + " is the new coordinator.");
             isCoordinator = true;
             coordinatorId = id;
             isElectionInProgress.set(false);
 
             for (ProcessInfo otherProcess : otherProcesses) {
-                Message message = new Message(id, MessageType.COORDINATOR, otherProcess.getId());
-                sendMessage(otherProcess, message);
+                sendMessage(otherProcess, new Message(id, MessageType.COORDINATOR, otherProcess.getId()));
             }
         }
     }
 
     private void handleElectionMessage(int senderId) {
-        LOGGER.log(Level.INFO, "Process " + id + " received an ELECTION message from (" + senderId + ").");
-
-        // If you are not in an election or the sender has a higher ID than your current coordinator
         if (!isElectionInProgress.get() || senderId > coordinatorId) {
             isElectionInProgress.set(true);
             electionStartTime = System.currentTimeMillis();
 
-            // Send OK only if the sender has a higher ID
-            if (senderId < id) {
-                Message okMessage = new Message(id, MessageType.OK, senderId);
-                sendMessage(new ProcessInfo(senderId, PORT_BASE + senderId), okMessage);
+            if (senderId > id) {
+                sendMessage(new ProcessInfo(senderId, PORT_BASE + senderId), new Message(id, MessageType.OK, senderId));
             }
 
             initiateElection();
@@ -236,16 +276,9 @@ public class Process {
     }
 
     private boolean checkElectionTimeout() {
-        return isElectionInProgress.get() && (System.currentTimeMillis() - electionStartTime) > ELECTION_TIMEOUT_IN_MS;
-    }
-
-    private void removeProcess(int processId) {
-        otherProcesses.removeIf(process -> process.getId() == processId);
-        if (coordinatorId == processId) {
-            coordinatorId = -1;
-            isCoordinator = false;
-        }
-        LOGGER.log(Level.INFO, "Process " + id + " removed process " + processId + " from the list of processes.");
+        return isElectionInProgress.get()
+                && (System.currentTimeMillis() - electionStartTime) > ELECTION_TIMEOUT_IN_MS
+                && !foundEligibleProcess.get();
     }
 
     private boolean checkLastAliveMessageTime() {

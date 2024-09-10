@@ -5,7 +5,7 @@ import java.util.Random;
 public class Main {
 
     public static void main(String[] args) {
-        int numberOfProcesses = 9; // You can change this to simulate with more or fewer processes
+        int numberOfProcesses = 3; // You can change this to simulate with more or fewer processes
 
         List<Process> processes = new ArrayList<>();
 
@@ -31,7 +31,7 @@ public class Main {
             Thread.sleep(10000); // Wait for 10 seconds to allow election and coordinator declaration
             System.out.println("Simulating coordinator failure...");
 
-            processes.getLast().stop();
+            processes.getLast().stop(); // Stop the coordinator
 
             Thread.sleep(100000); // Wait some time to see if a new election occurs
             System.out.println("Test finished.");
