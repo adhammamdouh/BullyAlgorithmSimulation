@@ -36,9 +36,11 @@ public class Message {
     }
 
     public static Message fromString(String message) {
+        if (message == null) {
+            return null;
+        }
         String[] parts = message.split(" \\| ");
         if (parts.length != 3) {
-            System.err.println("Invalid message format: " + message);
             return null;
         }
         LocalDateTime timestamp = LocalDateTime.parse(parts[0].trim(), DateTimeFormatter.ISO_LOCAL_DATE_TIME);
