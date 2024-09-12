@@ -160,11 +160,9 @@ public class Process {
     }
 
     private void handleNewProcessMessage(Message message) {
-        if (processExists(message.getSenderId())) {
-            return;
+        if (!processExists(message.getSenderId())) {
+            otherProcesses.add(new ProcessInfo(message.getSenderId(), PORT_BASE + message.getSenderId()));
         }
-
-        otherProcesses.add(new ProcessInfo(message.getSenderId(), PORT_BASE + message.getSenderId()));
     }
 
     private void handleElectionMessage(Message message) {
@@ -255,7 +253,6 @@ public class Process {
         isCoordinator = true;
         coordinatorId = id;
         isElectionInProgress.set(false);
-
         startCoordinatorHeartbeatThread();
     }
 
@@ -291,12 +288,7 @@ public class Process {
     }
 
     private boolean processExists(int processId) {
-        for (ProcessInfo processInfo : otherProcesses) {
-            if (processInfo.getId() == processId) {
-                return true;
-            }
-        }
-        return false;
+        return otherProcesses.stream().anyMatch(processInfo -> processInfo.getId() == processId);
     }
 
     private void stopHeartbeatThread() {
@@ -305,7 +297,7 @@ public class Process {
             try {
                 coordinatorHeartbeatThread.join();
             } catch (InterruptedException e) {
-                // Handle interruption while waiting for the thread to join
+
             }
         }
     }
