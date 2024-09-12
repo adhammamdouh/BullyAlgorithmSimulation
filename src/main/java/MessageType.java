@@ -3,5 +3,6 @@ public enum MessageType {
     COORDINATOR,
     OK,
     COORDINATOR_ALIVE,
-    STOP
+    STOP,
+    COORDINATOR_STOP
 }
