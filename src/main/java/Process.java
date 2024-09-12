@@ -53,13 +53,13 @@ public class Process {
             serverSocket.setSoTimeout(COORDINATOR_TIMEOUT_IN_MS);
 
             if (!isCoordinator) {
-                announceNewProcess();
-                findCoordinator();
+                broadcastNewProcess();
+                requestCoordinatorElection();
             }
 
             while (true) {
                 try {
-                    handleIncomingMessages();
+                    processIncomingMessages();
                 } catch (SocketException e) {
                     logArea.append("Process " + id + " stopped.\n");
                     break;
@@ -75,9 +75,9 @@ public class Process {
         try {
             for (ProcessInfo processInfo : otherProcesses) {
                 if (isCoordinator) {
-                    sendMessage(processInfo, new Message(id, MessageType.COORDINATOR_STOP, processInfo.getId()));
+                    sendMessageToProcess (processInfo, new Message(id, MessageType.COORDINATOR_STOP, processInfo.getId()));
                 } else {
-                    sendMessage(processInfo, new Message(id, MessageType.STOP, processInfo.getId()));
+                    sendMessageToProcess (processInfo, new Message(id, MessageType.STOP, processInfo.getId()));
                 }
             }
 
@@ -85,7 +85,7 @@ public class Process {
             coordinatorId = -1;
 
             serverSocket.close();
-            stopHeartbeatThread();
+            terminateHeartbeatThread ();
 
             if (electionTimeoutThread != null) {
                 electionTimeoutThread.interrupt();
@@ -95,30 +95,30 @@ public class Process {
         }
     }
 
-    private void announceNewProcess() {
+    private void broadcastNewProcess() {
         for (ProcessInfo processInfo : otherProcesses) {
-            sendMessage(processInfo, new Message(id, MessageType.NEW_PROCESS, processInfo.getId()));
+            sendMessageToProcess (processInfo, new Message(id, MessageType.NEW_PROCESS, processInfo.getId()));
         }
     }
 
-    private void findCoordinator() {
-        initiateElection();
+    private void requestCoordinatorElection() {
+        startElectionProcess();
     }
 
-    private void initiateElection() {
+    private void startElectionProcess() {
         isElectionInProgress.set(true);
         electionStartTime = System.currentTimeMillis();
 
         for (ProcessInfo processInfo : otherProcesses) {
             if (processInfo.getId() > id) {
-                sendMessage(processInfo, new Message(id, MessageType.ELECTION, processInfo.getId()));
+                sendMessageToProcess (processInfo, new Message(id, MessageType.ELECTION, processInfo.getId()));
             }
         }
 
-        startElectionTimeoutThread();
+        launchElectionTimeoutMonitor();
     }
 
-    private void handleIncomingMessages() throws SocketException {
+    private void processIncomingMessages() throws SocketException {
         try (
             Socket socket = serverSocket.accept();
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
@@ -128,30 +128,30 @@ public class Process {
             logArea.append("Process " + id + " received: " + message.toLogString() + "\n");
             switch (message.getType()) {
                 case NEW_PROCESS:
-                    handleNewProcessMessage(message);
+                    processNewProcessMessage(message);
                     break;
                 case ELECTION:
-                    handleElectionMessage(message);
+                    processElectionMessage(message);
                     break;
                 case COORDINATOR:
-                    handleCoordinatorMessage(message);
+                    processCoordinatorMessage(message);
                     break;
                 case OK:
-                    handleOkMessage(message);
+                    processOkMessage(message);
                     break;
                 case COORDINATOR_ALIVE:
-                    handleCoordinatorAliveMessage(message);
+                    processCoordinatorAliveMessage(message);
                     break;
                 case STOP:
-                    handleStopMessage(message);
+                    processStopMessage(message);
                     break;
                 case COORDINATOR_STOP:
-                    handleCoordinatorStopMessage(message);
+                    processCoordinatorStopMessage(message);
                     break;
             }
         } catch (SocketTimeoutException e) {
             if (!isCoordinator) {
-                checkCoordinatorAlive();
+                verifyCoordinatorLiveness();
             }
         } catch (SocketException e) {
             throw e;
@@ -160,22 +160,22 @@ public class Process {
         }
     }
 
-    private void handleNewProcessMessage(Message message) {
+    private void processNewProcessMessage(Message message) {
         if (!processExists(message.getSenderId())) {
             otherProcesses.add(new ProcessInfo(message.getSenderId(), PORT_BASE + message.getSenderId()));
         }
     }
 
-    private void handleElectionMessage(Message message) {
+    private void processElectionMessage(Message message) {
         if (!isElectionInProgress.get()) {
-            initiateElection();
+            startElectionProcess();
         }
 
-        sendMessage(new ProcessInfo(message.getSenderId(), PORT_BASE + message.getSenderId()),
+        sendMessageToProcess (new ProcessInfo(message.getSenderId(), PORT_BASE + message.getSenderId()),
                 new Message(id, MessageType.OK, message.getSenderId()));
     }
 
-    private void handleCoordinatorMessage(Message message) {
+    private void processCoordinatorMessage(Message message) {
         if (isElectionInProgress.get()) {
             return;
         }
@@ -184,42 +184,42 @@ public class Process {
             latestCoordinatorTimestamp = message.getTimestamp();
             coordinatorId = message.getSenderId();
         }
-        stopHeartbeatThread();
+        terminateHeartbeatThread ();
         isCoordinator = false;
     }
 
-    private void handleOkMessage(Message message) {
+    private void processOkMessage(Message message) {
         isElectionInProgress.set(false);
     }
 
-    private void handleCoordinatorAliveMessage(Message message) {
+    private void processCoordinatorAliveMessage(Message message) {
         lastAliveMessageTime = System.currentTimeMillis();
         if (message.getSenderId() > id) {
-            stopHeartbeatThread();
+            terminateHeartbeatThread ();
             isCoordinator = false;
         }
     }
 
-    private void handleStopMessage(Message message) {
-        removeProcess(message.getSenderId());
+    private void processStopMessage(Message message) {
+        removeProcessFromList(message.getSenderId());
 
         if (isElectionInProgress.get() && message.getSenderId() > id) {
-            initiateElection();
+            startElectionProcess();
         }
     }
 
-    private void handleCoordinatorStopMessage(Message message) {
+    private void processCoordinatorStopMessage(Message message) {
         isCoordinator = false;
         coordinatorId = -1;
 
-        removeProcess(message.getSenderId());
+        removeProcessFromList(message.getSenderId());
 
         if (isElectionInProgress.get()) {
-            initiateElection();
+            startElectionProcess();
         }
     }
 
-    private void removeProcess(int processId) {
+    private void removeProcessFromList(int processId) {
         for (ProcessInfo processInfo : otherProcesses) {
             if (processInfo.getId() == processId) {
                 otherProcesses.remove(processInfo);
@@ -228,19 +228,19 @@ public class Process {
         }
     }
 
-    private void checkCoordinatorAlive() {
+    private void verifyCoordinatorLiveness() {
         if (System.currentTimeMillis() - lastAliveMessageTime > COORDINATOR_TIMEOUT_IN_MS) {
-            initiateElection();
+            startElectionProcess();
         }
     }
 
-    private void startElectionTimeoutThread() {
+    private void launchElectionTimeoutMonitor() {
         electionTimeoutThread = new Thread(() -> {
             while (!electionTimeoutThread.isInterrupted()) {
                 try {
                     Thread.sleep(ELECTION_TIMEOUT_IN_MS);
-                    if (CheckElectionTimeout() && !isCoordinator) {
-                        declareAsCoordinator();
+                    if (isElectionTimeoutExceeded() && !isCoordinator) {
+                        declareSelfAsCoordinator();
                         break;
                     }
                 } catch (InterruptedException e) {
@@ -252,13 +252,13 @@ public class Process {
         electionTimeoutThread.start();
     }
 
-    private boolean CheckElectionTimeout() {
+    private boolean isElectionTimeoutExceeded() {
         return isElectionInProgress.get() && System.currentTimeMillis() - electionStartTime > ELECTION_TIMEOUT_IN_MS;
     }
 
-    private void declareAsCoordinator() {
+    private void declareSelfAsCoordinator() {
         for (ProcessInfo processInfo : otherProcesses) {
-            sendMessage(processInfo, new Message(id, MessageType.COORDINATOR, processInfo.getId()));
+            sendMessageToProcess (processInfo, new Message(id, MessageType.COORDINATOR, processInfo.getId()));
         }
 
         isCoordinator = true;
@@ -273,7 +273,7 @@ public class Process {
                 try {
                     Thread.sleep(ALIVE_MESSAGE_INTERVAL_IN_MS);
                     logArea.append("Process " + id + " sending alive message to other processes.\n");
-                    sendCoordinatorAliveMessage();
+                    broadcastCoordinatorAliveSignal();
                 } catch (InterruptedException e) {
                     break;
                 }
@@ -283,14 +283,14 @@ public class Process {
         coordinatorHeartbeatThread.start();
     }
 
-    private void sendCoordinatorAliveMessage() throws InterruptedException {
+    private void broadcastCoordinatorAliveSignal() throws InterruptedException {
         for (ProcessInfo processInfo : otherProcesses) {
-            sendMessage(processInfo, new Message(id, MessageType.COORDINATOR_ALIVE, processInfo.getId()));
+            sendMessageToProcess (processInfo, new Message(id, MessageType.COORDINATOR_ALIVE, processInfo.getId()));
         }
 
     }
 
-    private void sendMessage(ProcessInfo receiver, Message message) {
+    private void sendMessageToProcess (ProcessInfo receiver, Message message) {
         try (Socket socket = new Socket("localhost", receiver.getPort());
              PrintWriter out = new PrintWriter(socket.getOutputStream(), true)) {
             out.println(message.toString());
@@ -302,7 +302,7 @@ public class Process {
         return otherProcesses.stream().anyMatch(processInfo -> processInfo.getId() == processId);
     }
 
-    private void stopHeartbeatThread() {
+    private void terminateHeartbeatThread () {
         if (coordinatorHeartbeatThread != null) {
             coordinatorHeartbeatThread.interrupt();
             try {
