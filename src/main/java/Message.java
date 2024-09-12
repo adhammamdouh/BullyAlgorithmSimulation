@@ -1,4 +1,5 @@
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 
 public class Message {
@@ -11,6 +12,7 @@ public class Message {
         this.senderId = senderId;
         this.type = type;
         this.receiverId = receiverId;
+        this.timestamp = System.currentTimeMillis();
     }
 
     private Message(int senderId, MessageType type, int receiverId, long timestamp) {
@@ -37,7 +39,11 @@ public class Message {
     }
 
     public String toString() {
-        return System.currentTimeMillis() + " | From: " + senderId + " | " + type ;
+        return timestamp + " | From: " + senderId + " | " + type ;
+    }
+
+    public String toLogString() {
+        return LocalDateTime.ofEpochSecond(timestamp / 1000, 0, ZoneOffset.UTC).format(DateTimeFormatter.ofPattern("HH:mm:ss.SSS")) + " | From: " + senderId + " | " + type;
     }
 
     public static Message fromString(String message) {
