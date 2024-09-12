@@ -3,15 +3,21 @@ import java.time.format.DateTimeFormatter;
 
 public class Message {
     private MessageType type;
-    private String content;
     private int receiverId;
     private int senderId;
-    private LocalDateTime timestamp;
+    private long timestamp;
 
     public Message(int senderId, MessageType type, int receiverId) {
         this.senderId = senderId;
         this.type = type;
         this.receiverId = receiverId;
+    }
+
+    private Message(int senderId, MessageType type, int receiverId, long timestamp) {
+        this.senderId = senderId;
+        this.type = type;
+        this.receiverId = receiverId;
+        this.timestamp = timestamp;
     }
 
     public int getSenderId() {
@@ -22,17 +28,16 @@ public class Message {
         return type;
     }
 
-    public String getContent() {
-        return content;
-    }
-
     public int getReceiverId() {
         return receiverId;
     }
 
+    public long getTimestamp() {
+        return timestamp;
+    }
+
     public String toString() {
-        return LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-                + " | From: " + senderId + " | " + type ;
+        return System.currentTimeMillis() + " | From: " + senderId + " | " + type ;
     }
 
     public static Message fromString(String message) {
@@ -43,9 +48,9 @@ public class Message {
         if (parts.length != 3) {
             return null;
         }
-        LocalDateTime timestamp = LocalDateTime.parse(parts[0].trim(), DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        long timestamp = Long.parseLong(parts[0].trim());
         int senderId = Integer.parseInt(parts[1].split(": ")[1].trim());
         MessageType type = MessageType.valueOf(parts[2].trim());
-        return new Message(senderId, type, -1);
+        return new Message(senderId, type, -1, timestamp);
     }
 }
