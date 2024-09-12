@@ -1,3 +1,4 @@
+import javax.swing.*;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -33,9 +34,9 @@ public class Process {
     protected Thread coordinatorHeartbeatThread;
     protected Thread electionTimeoutThread;
 
-    private static final Logger LOGGER = Logger.getLogger(java.lang.Process.class.getName());
+    private JTextArea logArea;
 
-    public Process(int id) {
+    public Process(int id, JTextArea logArea) {
         this.id = id;
         this.port = PORT_BASE + id;
         this.isCoordinator = false;
@@ -43,6 +44,7 @@ public class Process {
         this.otherProcesses = new ArrayList<>();
 
         this.isElectionInProgress = new AtomicBoolean(false);
+        this.logArea = logArea;
     }
 
     public void start() {
@@ -59,7 +61,7 @@ public class Process {
                 try {
                     handleIncomingMessages();
                 } catch (SocketException e) {
-                    LOGGER.log(Level.INFO, "Process (" + id + ") Socket closed.");
+                    logArea.append("Process " + id + " stopped.\n");
                     break;
                 }
             }
@@ -123,8 +125,7 @@ public class Process {
             String messageString = in.readLine();
             Message message = Message.fromString(messageString);
 
-            LOGGER.log(Level.INFO, "Process (" + id + ") Received message: " + message.toString());
-
+            logArea.append("Process " + id + " received: " + message.toLogString() + "\n");
             switch (message.getType()) {
                 case NEW_PROCESS:
                     handleNewProcessMessage(message);
@@ -175,14 +176,15 @@ public class Process {
     }
 
     private void handleCoordinatorMessage(Message message) {
+        if (isElectionInProgress.get()) {
+            return;
+        }
         isElectionInProgress.set(false);
         if (message.getTimestamp() >= latestCoordinatorTimestamp  && message.getSenderId() > id) {
-            LOGGER.log(Level.INFO, "Process (" + id + ") Received coordinator message from " + message.getSenderId());
             latestCoordinatorTimestamp = message.getTimestamp();
             coordinatorId = message.getSenderId();
-
-            stopHeartbeatThread();
         }
+        stopHeartbeatThread();
         isCoordinator = false;
     }
 
@@ -192,6 +194,10 @@ public class Process {
 
     private void handleCoordinatorAliveMessage(Message message) {
         lastAliveMessageTime = System.currentTimeMillis();
+        if (message.getSenderId() > id) {
+            stopHeartbeatThread();
+            isCoordinator = false;
+        }
     }
 
     private void handleStopMessage(Message message) {
@@ -230,9 +236,14 @@ public class Process {
 
     private void startElectionTimeoutThread() {
         electionTimeoutThread = new Thread(() -> {
-            while (true) {
-                if (CheckElectionTimeout() && !isCoordinator) {
-                    declareAsCoordinator();
+            while (!electionTimeoutThread.isInterrupted()) {
+                try {
+                    Thread.sleep(ELECTION_TIMEOUT_IN_MS);
+                    if (CheckElectionTimeout() && !isCoordinator) {
+                        declareAsCoordinator();
+                        break;
+                    }
+                } catch (InterruptedException e) {
                     break;
                 }
             }
@@ -260,9 +271,9 @@ public class Process {
         coordinatorHeartbeatThread = new Thread(() -> {
             while (!coordinatorHeartbeatThread.isInterrupted()) {
                 try {
-                    LOGGER.log(Level.INFO, "Process (" + id + ") Sending coordinator alive message.");
-                    sendCoordinatorAliveMessage();
                     Thread.sleep(ALIVE_MESSAGE_INTERVAL_IN_MS);
+                    logArea.append("Process " + id + " sending alive message to other processes.\n");
+                    sendCoordinatorAliveMessage();
                 } catch (InterruptedException e) {
                     break;
                 }

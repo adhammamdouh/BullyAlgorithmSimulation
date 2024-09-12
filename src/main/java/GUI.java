@@ -5,6 +5,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class GUI {
     private JFrame frame;
@@ -12,7 +13,6 @@ public class GUI {
     private JTextField batchField;
     private JButton startBatchButton;
     private JButton addProcessButton;
-    private JButton resetButton;
     private JPanel processPanel;
     private JScrollPane scrollPane;
     private List<JButton> stopButtons = new ArrayList<>();
@@ -42,7 +42,7 @@ public class GUI {
         // Left Panel for logs
         logArea = new JTextArea();
         logArea.setEditable(false);
-        logArea.setEnabled(false);
+        //logArea.setEnabled(false);
         JScrollPane logScrollPane = new JScrollPane(logArea);
         frame.add(logScrollPane, BorderLayout.CENTER);
 
@@ -54,9 +54,7 @@ public class GUI {
         // Bottom Panel for Add Process and Reset buttons
         JPanel bottomPanel = new JPanel();
         addProcessButton = new JButton("Add New Process");
-        resetButton = new JButton("Reset");
         bottomPanel.add(addProcessButton);
-        bottomPanel.add(resetButton);
         frame.add(bottomPanel, BorderLayout.SOUTH);
 
         // Button Actions
@@ -70,14 +68,18 @@ public class GUI {
         addProcessButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                addNewProcess();
-            }
-        });
+                int processCount = processes.size();
+                Process process = new Process(processCount, logArea);
 
-        resetButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                resetAll();
+                for (Process p: processes) {
+                    ProcessInfo otherProcess = new ProcessInfo(p.id, Process.PORT_BASE + p.id);
+                    process.otherProcesses.add(otherProcess);
+                }
+                processes.add(process);
+
+                addNewProcess(processCount);
+
+                new Thread(process::start).start();
             }
         });
 
@@ -96,19 +98,29 @@ public class GUI {
             JOptionPane.showMessageDialog(frame, "Please enter a valid batch size", "Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
+        startBatchButton.setEnabled(false);
 
         for (int i = 0; i < batchSize; i++) {
-            addNewProcess();
+            Process process = new Process(i, logArea);
+            processes.add(process);
+        }
+
+        for (int i = 0; i < batchSize; i++) {
+            for (int j = 0; j < batchSize; j++) {
+                if (i != j) {
+                    ProcessInfo otherProcess = new ProcessInfo(j, Process.PORT_BASE + j);
+                    processes.get(i).otherProcesses.add(otherProcess);
+                }
+            }
+            addNewProcess(i);
+        }
+
+        for (int i = 0; i < batchSize; i++) {
+            new Thread(processes.get(i)::start).start();
         }
     }
 
-    private void addNewProcess() {
-        int processesCount = processes.size() + 1;
-        System.out.println("Process " + processesCount + " added.");
-        Process process = new Process(processesCount, logArea);
-        processes.forEach(p -> process.otherProcesses.add(new ProcessInfo(p.id, Process.PORT_BASE + p.id)));
-
-        processes.add(process);
+    private void addNewProcess(int processesCount) {
 
         JPanel processEntry = new JPanel();
         processEntry.setLayout(new FlowLayout(FlowLayout.LEFT));
@@ -124,37 +136,31 @@ public class GUI {
         stopButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                stopProcess(processesCount);
+                stopProcess(processesCount, stopButton);
             }
         });
 
         processPanel.add(processEntry);
         processPanel.revalidate();
         processPanel.repaint();
-
-        logArea.append("Process " + processesCount + " added.\n");
-        new Thread(process::start).start();
-        logArea.append("Process " + processesCount + " started.\n");
-
-        System.out.println("Process " + processesCount + " started.");
     }
 
-    private void stopProcess(int processName) {
-        logArea.append(processName + " stopped.\n");
-        // Logic to stop the process can be implemented here
-    }
+    private void stopProcess(int processId, JButton stopButton) {
+        if (Objects.equals(stopButton.getText(), "Start")) {
+            processes.get(processId).otherProcesses.clear();
+            for (Process p : processes) {
+                if (p.id == processId) {
+                    continue;
+                }
+                ProcessInfo otherProcess = new ProcessInfo(p.id, Process.PORT_BASE + p.id);
+                processes.get(processId).otherProcesses.add(otherProcess);
+            }
 
-    private void resetAll() {
-        processPanel.removeAll();
-        processPanel.revalidate();
-        processPanel.repaint();
-        batchField.setText("");
-        logArea.setText("");
-        processes.forEach(Process::stop);
-        processes.clear();
-    }
-
-    public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new GUI());
+            new Thread(processes.get(processId)::start).start();
+            stopButton.setText("Stop");
+        } else {
+            processes.get(processId).stop();
+            stopButton.setText("Start");
+        }
     }
 }
