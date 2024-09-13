@@ -68,6 +68,7 @@ public class GUI {
         addProcessButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
+                addProcessButton.setEnabled(false);
                 int processCount = processes.size();
                 Process process = new Process(processCount, logArea);
 
@@ -80,6 +81,7 @@ public class GUI {
                 addNewProcess(processCount);
 
                 new Thread(process::start).start();
+                addProcessButton.setEnabled(true);
             }
         });
 
@@ -88,36 +90,52 @@ public class GUI {
 
     private void startBatchProcesses() {
         int batchSize;
+
+        // Validate batch size input
         try {
             batchSize = Integer.parseInt(batchField.getText());
             if (batchSize <= 0) {
                 throw new NumberFormatException();
             }
-
         } catch (NumberFormatException e) {
             JOptionPane.showMessageDialog(frame, "Please enter a valid batch size", "Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
+
+        // Disable the start button during processing
         startBatchButton.setEnabled(false);
 
+        // Get the starting ID as the current size of the 'processes' list to ensure incremental IDs
+        int startingId = processes.size();
+
+        // Create a new list for each batch call to keep track of the processes independently
+        List<Process> currentBatchProcesses = new ArrayList<>();
+
+        // Initialize processes for this batch with incremental IDs starting from 'startingId'
         for (int i = 0; i < batchSize; i++) {
-            Process process = new Process(i, logArea);
-            processes.add(process);
+            Process process = new Process(startingId + i, logArea);  // Start ID from the size of the existing list
+            currentBatchProcesses.add(process);
+            processes.add(process);  // Add to the main processes list
         }
 
+        // Set up other processes information for each process
         for (int i = 0; i < batchSize; i++) {
-            for (int j = 0; j < batchSize; j++) {
-                if (i != j) {
-                    ProcessInfo otherProcess = new ProcessInfo(j, Process.PORT_BASE + j);
-                    processes.get(i).otherProcesses.add(otherProcess);
+            for (Process process : processes) {
+                if (currentBatchProcesses.get(i).id != process.id) {
+                    ProcessInfo otherProcess = new ProcessInfo(process.id, process.port);
+                    currentBatchProcesses.get(i).otherProcesses.add(otherProcess);
                 }
             }
-            addNewProcess(i);
+            addNewProcess(currentBatchProcesses.get(i).id);
         }
 
-        for (int i = 0; i < batchSize; i++) {
-            new Thread(processes.get(i)::start).start();
+        // Start all processes in this batch
+        for (Process process : currentBatchProcesses) {
+            new Thread(process::start).start();
         }
+
+        // Re-enable the start button once the batch has started
+        startBatchButton.setEnabled(true);
     }
 
     private void addNewProcess(int processesCount) {

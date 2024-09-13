@@ -19,7 +19,7 @@
   </classPath>
   <jre>
     <path>C:\Users\mamdo\.jdks\openjdk-22.0.2</path>
-    <requiresJdk>true</requiresJdk>
+    <requiresJdk>false</requiresJdk>
     <requires64Bit>false</requires64Bit>
     <minVersion></minVersion>
     <maxVersion></maxVersion>

@@ -75,9 +75,9 @@ public class Process {
         try {
             for (ProcessInfo processInfo : otherProcesses) {
                 if (isCoordinator) {
-                    sendMessageToProcess (processInfo, new Message(id, MessageType.COORDINATOR_STOP, processInfo.getId()));
+                    sendMessageToProcess(processInfo, new Message(id, MessageType.COORDINATOR_STOP, processInfo.getId()));
                 } else {
-                    sendMessageToProcess (processInfo, new Message(id, MessageType.STOP, processInfo.getId()));
+                    sendMessageToProcess(processInfo, new Message(id, MessageType.STOP, processInfo.getId()));
                 }
             }
 
@@ -97,7 +97,7 @@ public class Process {
 
     private void broadcastNewProcess() {
         for (ProcessInfo processInfo : otherProcesses) {
-            sendMessageToProcess (processInfo, new Message(id, MessageType.NEW_PROCESS, processInfo.getId()));
+            sendMessageToProcess(processInfo, new Message(id, MessageType.NEW_PROCESS, processInfo.getId()));
         }
     }
 
@@ -111,7 +111,7 @@ public class Process {
 
         for (ProcessInfo processInfo : otherProcesses) {
             if (processInfo.getId() > id) {
-                sendMessageToProcess (processInfo, new Message(id, MessageType.ELECTION, processInfo.getId()));
+                sendMessageToProcess(processInfo, new Message(id, MessageType.ELECTION, processInfo.getId()));
             }
         }
 
@@ -171,7 +171,7 @@ public class Process {
             startElectionProcess();
         }
 
-        sendMessageToProcess (new ProcessInfo(message.getSenderId(), PORT_BASE + message.getSenderId()),
+        sendMessageToProcess(new ProcessInfo(message.getSenderId(), PORT_BASE + message.getSenderId()),
                 new Message(id, MessageType.OK, message.getSenderId()));
     }
 
@@ -184,7 +184,7 @@ public class Process {
             latestCoordinatorTimestamp = message.getTimestamp();
             coordinatorId = message.getSenderId();
         }
-        terminateHeartbeatThread ();
+        terminateHeartbeatThread();
         isCoordinator = false;
     }
 
@@ -195,7 +195,7 @@ public class Process {
     private void processCoordinatorAliveMessage(Message message) {
         lastAliveMessageTime = System.currentTimeMillis();
         if (message.getSenderId() > id) {
-            terminateHeartbeatThread ();
+            terminateHeartbeatThread();
             isCoordinator = false;
         }
     }
@@ -269,7 +269,7 @@ public class Process {
 
     private void startCoordinatorHeartbeatThread() {
         coordinatorHeartbeatThread = new Thread(() -> {
-            while (!coordinatorHeartbeatThread.isInterrupted()) {
+            while (!coordinatorHeartbeatThread.isInterrupted() && isCoordinator) {
                 try {
                     Thread.sleep(ALIVE_MESSAGE_INTERVAL_IN_MS);
                     logArea.append("Process " + id + " sending alive message to other processes.\n");
