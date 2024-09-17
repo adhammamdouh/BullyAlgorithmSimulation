@@ -97,12 +97,11 @@ public class GUI {
                     otherProcessesArg.append(processApps.get(i).id).append(":").append(processApps.get(i).port).append(",");
                 }
 
-                ProcessBuilder processBuilder = new ProcessBuilder("java", "-cp", "target/classes", "Main", String.valueOf(id), String.valueOf(port), otherProcessesArg.toString());
+                ProcessBuilder processBuilder = new ProcessBuilder("javaw", "-cp", "target/classes", "Main", String.valueOf(id), String.valueOf(port), otherProcessesArg.toString());
                 ProcessApp addedProcess = new ProcessApp(id, ProcessApp.PORT_BASE + id);
 
                 // 2. Start the new process
                 try {
-                    processBuilder.inheritIO();
                     Process process = processBuilder.start();
                     processes.add(process);
                 } catch (IOException ex) {
@@ -153,7 +152,7 @@ public class GUI {
                 otherProcessesArg.append(processApps.get(j).id).append(":").append(processApps.get(j).port).append(",");
             }
 
-            ProcessBuilder processBuilder = new ProcessBuilder("java", "-cp", "target/classes", "Main", String.valueOf(currentBatchProcesses.get(i).id), String.valueOf(port), otherProcessesArg.toString());
+            ProcessBuilder processBuilder = new ProcessBuilder("javaw", "-cp", "target/classes", "Main", String.valueOf(currentBatchProcesses.get(i).id), String.valueOf(port), otherProcessesArg.toString());
 
             try {
                 processBuilder.inheritIO();
