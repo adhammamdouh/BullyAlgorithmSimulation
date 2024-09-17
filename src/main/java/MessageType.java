@@ -5,5 +5,6 @@ public enum MessageType {
     COORDINATOR_ALIVE,
     STOP,
     COORDINATOR_STOP,
-    NEW_PROCESS
+    NEW_PROCESS,
+    FORCE_STOP
 }
