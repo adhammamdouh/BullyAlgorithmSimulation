@@ -1,4 +1,3 @@
-import javax.swing.*;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -13,8 +12,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-public class Process {
-    protected static final int PORT_BASE = 5000;
+public class ProcessApp {
+    protected static final int PORT_BASE = 7000;
     protected static final int COORDINATOR_TIMEOUT_IN_MS = 3000;
     protected static final int ALIVE_MESSAGE_INTERVAL_IN_MS = COORDINATOR_TIMEOUT_IN_MS / 2;
     protected static final int ELECTION_TIMEOUT_IN_MS = 2000;
@@ -27,6 +26,7 @@ public class Process {
     protected long electionStartTime;
     protected long lastAliveMessageTime;
     protected long latestCoordinatorTimestamp;
+    protected int centralLoggerPort;
 
     protected List<ProcessInfo> otherProcesses;
     protected ServerSocket serverSocket;
@@ -34,40 +34,40 @@ public class Process {
     protected Thread coordinatorHeartbeatThread;
     protected Thread electionTimeoutThread;
 
-    private JTextArea logArea;
-
-    public Process(int id, JTextArea logArea) {
+    public ProcessApp(int id, int centralLoggerPort) {
         this.id = id;
         this.port = PORT_BASE + id;
         this.isCoordinator = false;
         this.coordinatorId = -1; // Initially, no coordinator
         this.otherProcesses = new ArrayList<>();
-
+        this.centralLoggerPort = centralLoggerPort;
         this.isElectionInProgress = new AtomicBoolean(false);
-        this.logArea = logArea;
     }
 
     public void start() {
         try {
+            System.out.println("Process " + id + " starting on port " + port);
             serverSocket = new ServerSocket(port);
             serverSocket.setSoTimeout(COORDINATOR_TIMEOUT_IN_MS);
-
+            System.out.println("Process " + id + " listening on port " + port);
             if (!isCoordinator) {
                 broadcastNewProcess();
                 requestCoordinatorElection();
+                System.out.println("Process " + id + " started.");
             }
 
             while (true) {
                 try {
                     processIncomingMessages();
+                    System.out.println("Process " + id + " is running.");
                 } catch (SocketException e) {
-                    logArea.append("Process " + id + " stopped.\n");
+                    log("Process " + id + " stopped.");
                     break;
                 }
             }
 
         } catch (IOException e) {
-            // If the port is already in use, try the next one
+            System.out.println("Error starting process " + id + ": " + e.getMessage());
         }
     }
 
@@ -85,11 +85,12 @@ public class Process {
             coordinatorId = -1;
 
             serverSocket.close();
-            terminateHeartbeatThread ();
+            terminateHeartbeatThread();
 
             if (electionTimeoutThread != null) {
                 electionTimeoutThread.interrupt();
             }
+            log("exit: " + id);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -125,7 +126,7 @@ public class Process {
             String messageString = in.readLine();
             Message message = Message.fromString(messageString);
 
-            logArea.append("Process " + id + " received: " + message.toLogString() + "\n");
+            log("Process " + id + " received: " + message.toLogString());
             switch (message.getType()) {
                 case NEW_PROCESS:
                     processNewProcessMessage(message);
@@ -147,6 +148,9 @@ public class Process {
                     break;
                 case COORDINATOR_STOP:
                     processCoordinatorStopMessage(message);
+                    break;
+                case FORCE_STOP:
+                    stop();
                     break;
             }
         } catch (SocketTimeoutException e) {
@@ -272,7 +276,7 @@ public class Process {
             while (!coordinatorHeartbeatThread.isInterrupted() && isCoordinator) {
                 try {
                     Thread.sleep(ALIVE_MESSAGE_INTERVAL_IN_MS);
-                    logArea.append("Process " + id + " sending alive message to other processes.\n");
+                    log("Process " + id + " sending alive message to other processes.");
                     broadcastCoordinatorAliveSignal();
                 } catch (InterruptedException e) {
                     break;
@@ -290,7 +294,7 @@ public class Process {
 
     }
 
-    private void sendMessageToProcess (ProcessInfo receiver, Message message) {
+    private void sendMessageToProcess(ProcessInfo receiver, Message message) {
         try (Socket socket = new Socket("localhost", receiver.getPort());
              PrintWriter out = new PrintWriter(socket.getOutputStream(), true)) {
             out.println(message.toString());
@@ -313,5 +317,12 @@ public class Process {
         }
     }
 
-
+    private void log(String message) {
+        try (Socket socket = new Socket("localhost", centralLoggerPort);
+             PrintWriter out = new PrintWriter(socket.getOutputStream(), true)) {
+            out.println(message);
+        } catch (IOException e) {
+            Logger.getGlobal().log(Level.SEVERE, "Error logging message: " + message);
+        }
+    }
 }
